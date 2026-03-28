@@ -77,8 +77,17 @@ class SyncRunner {
       (e) => e.retryCount >= kMaxRetries,
     );
 
+    // Also check if GPS points are still pending after Phase 2 attempted sync
+    bool hasUnsyncdGps = false;
+    if (walkId != null) {
+      final pendingGps = await _db.getPendingGpsPoints(walkId);
+      hasUnsyncdGps = pendingGps.isNotEmpty;
+    }
+
+    final allComplete = !hasFailures && !hasUnsyncdGps;
+
     yield state.copyWith(
-      phase: hasFailures ? SyncPhase.failed : SyncPhase.completed,
+      phase: allComplete ? SyncPhase.completed : SyncPhase.failed,
     );
   }
 }
