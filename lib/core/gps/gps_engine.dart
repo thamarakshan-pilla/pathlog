@@ -3,7 +3,6 @@ import 'package:geolocator/geolocator.dart';
 import 'gps_mode.dart';
 import '../db/tables.dart' show GpsMode;
 
-
 /// The adaptive GPS engine.
 ///
 /// Responsibilities:
@@ -23,12 +22,10 @@ class GpsEngine {
   bool _isRunning = false;
 
   /// Stream of GPS positions — walk_repository listens to this
-  Stream<Position> get positionStream =>
-      _positionController!.stream;
+  Stream<Position> get positionStream => _positionController!.stream;
 
   /// Stream of mode changes — UI listens to this to show current mode
-  Stream<GpsMode> get modeStream =>
-      _modeController!.stream;
+  Stream<GpsMode> get modeStream => _modeController!.stream;
 
   GpsMode get currentMode => _currentMode;
 
@@ -63,9 +60,15 @@ class GpsEngine {
       distanceFilter: config.distanceFilter.toInt(),
     );
 
-    _locationSubscription = Geolocator.getPositionStream(
-      locationSettings: settings,
-    ).listen(_onPosition);
+    _locationSubscription =
+        Geolocator.getPositionStream(locationSettings: settings).listen(
+          _onPosition,
+          onError: (error) {
+            // Forward to position stream so listeners can handle it,
+            // or handle gracefully (e.g., stop engine, notify UI)
+            _positionController?.addError(error);
+          },
+        );
 
     _currentMode = mode;
     _modeController?.add(mode);
