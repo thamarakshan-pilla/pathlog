@@ -20,9 +20,13 @@ class CloudflareClient {
     );
 
     // Request/response logging — remove in production
-    _dio.interceptors.add(
-      LogInterceptor(requestBody: true, responseBody: true),
-    );
+    // Only enable logging in debug mode
+    assert(() {
+      _dio.interceptors.add(
+        LogInterceptor(requestBody: true, responseBody: true),
+      );
+      return true;
+    }());
   }
 
   /// Upload a single event log.
