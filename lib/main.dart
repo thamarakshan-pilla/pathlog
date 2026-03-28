@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import '../core/background/background_sync_handler.dart' show initBackgroundSync;
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Must be called before runApp — registers WorkManager on both platforms
+  await initBackgroundSync();
+
   runApp(const MyApp());
 }
 
