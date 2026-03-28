@@ -1,0 +1,132 @@
+import 'package:drift/drift.dart';
+import 'package:drift_flutter/drift_flutter.dart';
+import 'tables.dart';
+
+part 'app_database.g.dart';
+
+@DriftDatabase(tables: [Walks, GpsPoints, EventLogs])
+class AppDatabase extends _$AppDatabase {
+  AppDatabase() : super(_openConnection());
+
+  @override
+  int get schemaVersion => 1;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (Migrator m) async {
+      await m.createAll();
+      // Create unique partial index to enforce at most one active walk
+      await customStatement(
+        'CREATE UNIQUE INDEX walks_one_active_idx ON walks(status) WHERE status = \'active\'',
+      );
+    },
+  );
+
+  static QueryExecutor _openConnection() {
+    return driftDatabase(name: 'pathlog');
+  }
+
+  // ─── Walk queries ──────────────────────────────────────────────────────────
+
+  Future<Walk?> getActiveWalk() => (select(
+    walks,
+  )..where((w) => w.status.equalsValue(WalkStatus.active))).getSingleOrNull();
+
+  Future<void> insertWalk(WalksCompanion walk) => into(walks).insert(walk);
+
+  Future<void> updateWalk(String id, WalksCompanion companion) =>
+      (update(walks)..where((w) => w.id.equals(id))).write(companion);
+
+  Stream<List<Walk>> watchAllWalks() =>
+      (select(walks)..orderBy([(w) => OrderingTerm.desc(w.startedAt)])).watch();
+
+  // ─── GpsPoint queries ──────────────────────────────────────────────────────
+
+  Future<void> insertGpsPoint(GpsPointsCompanion point) =>
+      into(gpsPoints).insert(point);
+
+  Future<List<GpsPoint>> getPendingGpsPoints(String walkId) =>
+      (select(gpsPoints)
+            ..where(
+              (g) =>
+                  g.walkId.equals(walkId) &
+                  g.syncStatus.equalsValue(SyncStatus.pending),
+            )
+            ..orderBy([(g) => OrderingTerm.asc(g.capturedAt)]))
+          .get();
+
+  Future<void> markGpsPointsSynced(List<String> ids) {
+    if (ids.isEmpty) return Future<void>.value();
+    return (update(gpsPoints)..where((g) => g.id.isIn(ids))).write(
+      const GpsPointsCompanion(syncStatus: Value(SyncStatus.synced)),
+    );
+  }
+
+  Future<int> countGpsPointsForWalk(String walkId) async {
+    final points = await (select(
+      gpsPoints,
+    )..where((g) => g.walkId.equals(walkId))).get();
+    return points.length;
+  }
+
+  // ─── EventLog queries ──────────────────────────────────────────────────────
+
+  Future<void> insertEventLog(EventLogsCompanion log) =>
+      into(eventLogs).insert(log);
+
+  Future<List<EventLog>> getPendingEventLogs() =>
+      (select(eventLogs)
+            ..where((e) => e.syncStatus.equalsValue(SyncStatus.pending))
+            ..orderBy([(e) => OrderingTerm.asc(e.createdAt)]))
+          .get();
+
+  Future<void> markEventLogSyncing(String id) =>
+      (update(eventLogs)..where((e) => e.id.equals(id))).write(
+        const EventLogsCompanion(syncStatus: Value(SyncStatus.syncing)),
+      );
+
+  Future<void> markEventLogSynced(String id) =>
+      (update(eventLogs)..where((e) => e.id.equals(id))).write(
+        const EventLogsCompanion(syncStatus: Value(SyncStatus.synced)),
+      );
+
+  Future<void> markEventLogFailed(String id, String error, int retryCount) =>
+      (update(eventLogs)..where((e) => e.id.equals(id))).write(
+        EventLogsCompanion(
+          syncStatus: const Value(SyncStatus.failed),
+          errorMessage: Value(error),
+          retryCount: Value(retryCount),
+        ),
+      );
+
+  /// Non-terminal failure — keep as pending so next sync cycle retries it.
+  /// retryCount is incremented so we track how many attempts have happened.
+  Future<void> requeueEventLog(String id, String error, int newRetryCount) =>
+      (update(eventLogs)..where((e) => e.id.equals(id))).write(
+        EventLogsCompanion(
+          syncStatus: const Value(SyncStatus.pending),
+          errorMessage: Value(error),
+          retryCount: Value(newRetryCount),
+        ),
+      );
+
+  // ─── Sync gate query ───────────────────────────────────────────────────────
+  // Used by sync queue: GPS upload only starts after ALL event logs
+  // for that walkId are confirmed synced. This is the dependency gate.
+
+  Future<bool> areAllEventLogsSynced(String walkId) async {
+    final logs = await (select(
+      eventLogs,
+    )..where((e) => e.walkId.equals(walkId))).get();
+    if (logs.isEmpty) return false;
+    return logs.every((e) => e.syncStatus == SyncStatus.synced);
+  }
+
+  // ─── UI badge count ────────────────────────────────────────────────────────
+
+  Stream<int> watchPendingCount() {
+    final query = select(eventLogs)
+      ..where((e) => e.syncStatus.equalsValue(SyncStatus.pending));
+    return query.watch().map((rows) => rows.length);
+  }
+}

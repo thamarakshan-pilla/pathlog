@@ -66,5 +66,25 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	
+	<!-- Location permission descriptions — iOS requires these strings -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Pathlog needs your location to track your walk route.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Pathlog uses background location to continue tracking your walk.</string>
+
+	<!-- Register the background task identifier with iOS -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>pathlog.background_sync</string>
+	</array>
+
+	<!-- Enable background fetch mode -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 </dict>
 </plist>
