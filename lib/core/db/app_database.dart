@@ -13,14 +13,14 @@ class AppDatabase extends _$AppDatabase {
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (Migrator m) async {
-          await m.createAll();
-          // Create unique partial index to enforce at most one active walk
-          await customStatement(
-            'CREATE UNIQUE INDEX walks_one_active_idx ON walks(status) WHERE status = \'active\'',
-          );
-        },
+    onCreate: (Migrator m) async {
+      await m.createAll();
+      // Create unique partial index to enforce at most one active walk
+      await customStatement(
+        'CREATE UNIQUE INDEX walks_one_active_idx ON walks(status) WHERE status = \'active\'',
       );
+    },
+  );
 
   static QueryExecutor _openConnection() {
     return driftDatabase(name: 'pathlog');
@@ -60,6 +60,13 @@ class AppDatabase extends _$AppDatabase {
     return (update(gpsPoints)..where((g) => g.id.isIn(ids))).write(
       const GpsPointsCompanion(syncStatus: Value(SyncStatus.synced)),
     );
+  }
+
+  Future<int> countGpsPointsForWalk(String walkId) async {
+    final points = await (select(
+      gpsPoints,
+    )..where((g) => g.walkId.equals(walkId))).get();
+    return points.length;
   }
 
   // ─── EventLog queries ──────────────────────────────────────────────────────
