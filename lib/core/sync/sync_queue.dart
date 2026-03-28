@@ -15,8 +15,8 @@ class SyncQueue {
   final CloudflareClient _client;
 
   SyncQueue({required AppDatabase db, required CloudflareClient client})
-      : _db = db,
-        _client = client;
+    : _db = db,
+      _client = client;
 
   /// Process all pending event logs.
   /// Returns the number successfully synced.
@@ -29,8 +29,16 @@ class SyncQueue {
     int synced = 0;
 
     for (final log in pending) {
-      // Skip if already exceeded max retries
-      if (log.retryCount >= kMaxRetries) continue;
+      // Terminal failure — mark as permanently failed so it no longer
+      // blocks getPendingEventLogs() or areAllEventLogsSynced()
+      if (log.retryCount >= kMaxRetries) {
+        await _db.markEventLogFailed(
+          log.id,
+          log.errorMessage ?? 'Max retries exceeded',
+          log.retryCount,
+        );
+        continue;
+      }
 
       await _db.markEventLogSyncing(log.id);
 
@@ -42,16 +50,20 @@ class SyncQueue {
           payload: log.payload,
           createdAt: log.createdAt,
         );
-
         await _db.markEventLogSynced(log.id);
         synced++;
         onProgress?.call(synced, pending.length);
       } on SyncUploadException catch (e) {
-        // Write failure back to DB — retryCount increments here
-        await _db.markEventLogFailed(log.id, e.message, log.retryCount + 1);
+        final nextRetry = log.retryCount + 1;
+        if (nextRetry >= kMaxRetries) {
+          // This attempt pushed it over the limit — mark terminal
+          await _db.markEventLogFailed(log.id, e.message, nextRetry);
+        } else {
+          // Non-terminal — requeue as pending so next cycle retries
+          await _db.requeueEventLog(log.id, e.message, nextRetry);
+        }
       }
     }
-
     return synced;
   }
 
@@ -70,16 +82,20 @@ class SyncQueue {
     if (pending.isEmpty) return 0;
 
     // Convert to the map format CloudflareClient expects
-    final points = pending.map((p) => {
-      'id': p.id,
-      'latitude': p.latitude,
-      'longitude': p.longitude,
-      'accuracy': p.accuracy,
-      'speed': p.speed,
-      'gpsMode': p.gpsMode.name,
-      'isMocked': p.isMocked,
-      'capturedAt': p.capturedAt.toIso8601String(),
-    }).toList();
+    final points = pending
+        .map(
+          (p) => {
+            'id': p.id,
+            'latitude': p.latitude,
+            'longitude': p.longitude,
+            'accuracy': p.accuracy,
+            'speed': p.speed,
+            'gpsMode': p.gpsMode.name,
+            'isMocked': p.isMocked,
+            'capturedAt': p.capturedAt.toIso8601String(),
+          },
+        )
+        .toList();
 
     try {
       await _client.uploadGpsPoints(walkId: walkId, points: points);

@@ -99,6 +99,17 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
+  /// Non-terminal failure — keep as pending so next sync cycle retries it.
+  /// retryCount is incremented so we track how many attempts have happened.
+  Future<void> requeueEventLog(String id, String error, int newRetryCount) =>
+      (update(eventLogs)..where((e) => e.id.equals(id))).write(
+        EventLogsCompanion(
+          syncStatus: const Value(SyncStatus.pending),
+          errorMessage: Value(error),
+          retryCount: Value(newRetryCount),
+        ),
+      );
+
   // ─── Sync gate query ───────────────────────────────────────────────────────
   // Used by sync queue: GPS upload only starts after ALL event logs
   // for that walkId are confirmed synced. This is the dependency gate.

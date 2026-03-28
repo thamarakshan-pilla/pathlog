@@ -9,8 +9,8 @@ class SyncRunner {
   late final SyncQueue _queue;
 
   SyncRunner({required AppDatabase db, required CloudflareClient client})
-      : _db = db,
-        _client = client {
+    : _db = db,
+      _client = client {
     _queue = SyncQueue(db: db, client: client);
   }
 
@@ -47,7 +47,12 @@ class SyncRunner {
           syncedEventLogs: state.syncedEventLogs + 1,
         );
       } on SyncUploadException catch (e) {
-        await _db.markEventLogFailed(log.id, e.message, log.retryCount + 1);
+        final nextRetry = log.retryCount + 1;
+        if (nextRetry >= kMaxRetries) {
+          await _db.markEventLogFailed(log.id, e.message, nextRetry);
+        } else {
+          await _db.requeueEventLog(log.id, e.message, nextRetry);
+        }
       }
     }
 
@@ -64,14 +69,13 @@ class SyncRunner {
 
       final syncedGps = await _queue.processGpsPoints(walkId: walkId);
 
-      yield state = state.copyWith(
-        syncedGpsPoints: syncedGps,
-      );
+      yield state = state.copyWith(syncedGpsPoints: syncedGps);
     }
 
     // ── Phase 3: Result ──────────────────────────────────────────────────────
-    final hasFailures = (await _db.getPendingEventLogs())
-        .any((e) => e.retryCount >= kMaxRetries);
+    final hasFailures = (await _db.getPendingEventLogs()).any(
+      (e) => e.retryCount >= kMaxRetries,
+    );
 
     yield state.copyWith(
       phase: hasFailures ? SyncPhase.failed : SyncPhase.completed,
