@@ -11,6 +11,17 @@ class AppDatabase extends _$AppDatabase {
   @override
   int get schemaVersion => 1;
 
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (Migrator m) async {
+          await m.createAll();
+          // Create unique partial index to enforce at most one active walk
+          await customStatement(
+            'CREATE UNIQUE INDEX walks_one_active_idx ON walks(status) WHERE status = \'active\'',
+          );
+        },
+      );
+
   static QueryExecutor _openConnection() {
     return driftDatabase(name: 'pathlog');
   }
@@ -44,10 +55,12 @@ class AppDatabase extends _$AppDatabase {
             ..orderBy([(g) => OrderingTerm.asc(g.capturedAt)]))
           .get();
 
-  Future<void> markGpsPointsSynced(List<String> ids) =>
-      (update(gpsPoints)..where((g) => g.id.isIn(ids))).write(
-        const GpsPointsCompanion(syncStatus: Value(SyncStatus.synced)),
-      );
+  Future<void> markGpsPointsSynced(List<String> ids) {
+    if (ids.isEmpty) return Future<void>.value();
+    return (update(gpsPoints)..where((g) => g.id.isIn(ids))).write(
+      const GpsPointsCompanion(syncStatus: Value(SyncStatus.synced)),
+    );
+  }
 
   // ─── EventLog queries ──────────────────────────────────────────────────────
 
