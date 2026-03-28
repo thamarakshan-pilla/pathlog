@@ -64,7 +64,8 @@ class CloudflareClient {
         '/gps',
         data: {'walkId': walkId, 'points': points},
       );
-      return response.statusCode == 200 || response.statusCode == 201;
+      final code = response.statusCode ?? 0;
+      return code >= 200 && code < 300;
     } on DioException catch (e) {
       throw SyncUploadException('GPS batch upload failed: ${e.message}');
     }
